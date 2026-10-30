@@ -185,7 +185,14 @@ const pretty = k => String(k).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toU
 const isYN = n => /^(yes|no|for|against|approve|reject|in favor|opposed)\b/i.test(String(n).trim());
 try { follow = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) {}
 tab = follow.length ? 'dash' : 'find';
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(follow)); } catch (e) {} };
+/* const save = () => { try { localStorage.setItem(KEY, JSON.stringify(follow)); } catch (e) {} }; */
+  const save = () => {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(follow));
+  } catch (e) {}
+
+  updateInstallBanner();
+};
 
 /* civicAPI field names inside each race are not fully documented, so accept common variants */
 const pick = (o, ks) => { if (o) for (const k of ks) if (o[k] != null && o[k] !== '') return o[k]; };
@@ -552,6 +559,127 @@ setInterval(() => { if (!document.hidden && tab === 'dash' && follow.length) loa
 document.addEventListener('visibilitychange', () => { if (!document.hidden && tab === 'dash') load(); });
 render(); load();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+  /* ----- PWA installation prompt ----- */
+
+let deferredInstallPrompt = null;
+
+const isIOS =
+  /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' &&
+   navigator.maxTouchPoints > 1);
+
+const DISMISS_KEY = 'election-install-dismissed';
+
+// Check whether the app is already running as an installed PWA.
+function isInstalled() {
+  return window.matchMedia('(display-mode: standalone)').matches ||
+         navigator.standalone === true;
+}
+
+// Don't show the banner again for seven days after dismissal.
+function wasDismissed() {
+  try {
+    const timestamp = Number(
+      localStorage.getItem(DISMISS_KEY)
+    );
+
+    return timestamp > 0 &&
+      Date.now() - timestamp < 7 * 24 * 60 * 60 * 1000;
+  } catch {
+    return false;
+  }
+}
+
+// Show the appropriate banner.
+function updateInstallBanner() {
+  const banner = document.getElementById('install-banner');
+  const description = document.getElementById('install-description');
+  const installButton = document.getElementById('install-button');
+
+  // Show only after someone follows at least one race.
+  if (
+    follow.length === 0 ||
+    isInstalled() ||
+    wasDismissed() ||
+    (!isIOS && !deferredInstallPrompt)
+  ) {
+    banner.hidden = true;
+    return;
+  }
+
+  if (isIOS) {
+    description.textContent =
+      'On iPhone: Open this site in Safari, tap Share, ' +
+      'then Add to Home Screen.';
+    installButton.hidden = true;
+  } else {
+    description.textContent =
+      'Add the dashboard to your home screen for ' +
+      'quick access to your followed races.';
+    installButton.hidden = false;
+  }
+
+  banner.hidden = false;
+}
+
+// Android / Chromium installation support.
+window.addEventListener('beforeinstallprompt', event => {
+  event.preventDefault();
+
+  deferredInstallPrompt = event;
+
+  updateInstallBanner();
+});
+
+// Handle the Install app button.
+document.getElementById('install-button')
+  .addEventListener('click', async () => {
+
+    if (!deferredInstallPrompt) return;
+
+    const promptEvent = deferredInstallPrompt;
+    deferredInstallPrompt = null;
+
+    try {
+      const result = await promptEvent.prompt();
+
+      if (result.outcome === 'dismissed') {
+        dismissInstallBanner();
+      } else {
+        document.getElementById('install-banner').hidden = true;
+      }
+    } catch (error) {
+      console.error('Installation prompt failed:', error);
+    }
+
+    updateInstallBanner();
+  });
+
+// Allow users to dismiss the banner.
+function dismissInstallBanner() {
+  try {
+    localStorage.setItem(
+      DISMISS_KEY,
+      String(Date.now())
+    );
+  } catch {}
+
+  document.getElementById('install-banner').hidden = true;
+}
+
+document.getElementById('install-dismiss')
+  .addEventListener('click', dismissInstallBanner);
+
+// Hide the banner after successful installation.
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  document.getElementById('install-banner').hidden = true;
+});
+
+// Check eligibility when the page first loads.
+updateInstallBanner();
+  
 </script>
 </body>
 </html>

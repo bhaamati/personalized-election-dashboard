@@ -75,7 +75,31 @@ footer a{color:var(--brand)}
   <button role="tab" id="t-dash" aria-selected="true" aria-controls="main">My Dashboard</button>
   <button role="tab" id="t-find" aria-selected="false" aria-controls="main">Choose Races to Follow</button>
 </nav>
+
+</nav>
+
+<section id="install-banner" class="install-banner" hidden>
+  <div class="install-text">
+    <strong>Install Election Dashboard</strong>
+    <p id="install-description">
+      Add this dashboard to your home screen
+      for quick access to your followed races.
+    </p>
+  </div>
+
+  <div class="install-actions">
+    <button id="install-button" class="btn">
+      Install app
+    </button>
+
+    <button id="install-dismiss" class="btn alt">
+      Not now
+    </button>
+  </div>
+</section>
+
 <main id="main"></main>
+  
 <script>
 const API = 'https://civicapi.org/api/v2', KEY = 'racewatch-follow-v2', EVERY = 30000, SHOW = 60;
 const SEARCH_CACHE_MS = 90000, LOCAL_PAGE_SIZE = 60;

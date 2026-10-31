@@ -7,12 +7,14 @@
  * The cache name changes when we add assets (CSS/JS) to the app shell, so
  * previously installed versions pick up the complete three-file app.
  */
-const CACHE = 'election-dashboard-shell-v6';
+const CACHE = 'election-dashboard-shell-v11';
 const SHELL = [
   './',
   './index.html',
   './styles.css',
   './app.js',
+  './firebase-sync.js',
+  './firebase-config.js',
   './manifest.webmanifest',
   './icon-180.png',
   './icon-192.png',

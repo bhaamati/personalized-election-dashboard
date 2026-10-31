@@ -471,3 +471,85 @@ footer a {
     flex: 1;
   }
 }
+
+/* Sign-in lives at the top-right of the header, not in a separate bar. */
+.header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.header-top h1 { flex: 1; min-width: 0; }
+
+.header-account {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 55%;
+}
+
+.account-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.account-actions button[hidden],
+.account-copy[hidden],
+.account-copy [hidden],
+.guest-import-banner[hidden],
+.guest-import-banner button[hidden] { display: none; }
+
+.google-login {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.account-copy { text-align: right; max-width: 280px; }
+.account-copy strong { display: block; font-size: 12px; color: var(--brand); overflow-wrap: anywhere; }
+.account-copy span { display: block; font-size: 11px; color: var(--mute); overflow-wrap: anywhere; }
+
+/* Importing guest races still uses the full-width banner below navigation. */
+.guest-import-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--tint);
+}
+.import-copy { flex: 1; min-width: 0; }
+.import-copy strong { display: block; color: var(--brand); font-size: 14px; }
+.import-copy p { display: block; color: var(--mute); font-size: 12px; margin: 3px 0 0; overflow-wrap: anywhere; }
+.import-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+@media (max-width: 540px) {
+  .header-top { align-items: flex-start; gap: 8px; }
+  .header-top h1 { font-size: 23px; }
+  .header-account { max-width: 58%; }
+  .google-login { padding: 7px 9px; font-size: 12px; gap: 5px; }
+  .guest-import-banner { align-items: stretch; flex-direction: column; }
+  .import-actions .btn { flex: 1; }
+}
+
+@media (max-width: 360px) {
+  .header-top h1 { font-size: 21px; }
+  .google-login { font-size: 11px; padding: 6px 7px; }
+}
+
+/* Switching Google accounts must not allow edits before their saved races load. */
+body.account-loading #main { opacity: .65; pointer-events: none; }
+
+
+/* Only signed-in accounts see this note below their dashboard table. */
+.dashboard-limit-note {
+  margin: 10px 4px;
+}

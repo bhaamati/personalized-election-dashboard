@@ -315,18 +315,88 @@ try {
 
 activeTab = followedRaceIds.length ? 'dash' : 'find';
 
-function saveFollowedRaces() {
-  try {
-    localStorage.setItem(
-      FOLLOWED_RACES_STORAGE_KEY,
-      JSON.stringify(followedRaceIds),
-    );
-  } catch (error) {
-    // Browsers in private/restricted modes may reject localStorage writes.
+/**
+ * Guests still use the exact existing storage key. Signed-in users write only
+ * the individual change to Firestore; do not overwrite this device's guest list.
+ */
+function saveFollowedRaces(action, raceId) {
+  if (window.electionCloud && window.electionCloud.isSignedIn()) {
+    window.electionCloud.saveChange(action, raceId);
+  } else {
+    try {
+      localStorage.setItem(
+        FOLLOWED_RACES_STORAGE_KEY,
+        JSON.stringify(followedRaceIds),
+      );
+    } catch (error) {
+      // Browsers in private/restricted modes may reject localStorage writes.
+    }
   }
 
   updateInstallBanner();
 }
+
+/** Prevent accidental edits while Google is switching/loading an account. */
+function canChangeFollowedRaces() {
+  return !window.electionCloud || window.electionCloud.canEdit();
+}
+
+/** Guest dashboards have no race cap; only signed-in Google accounts do. */
+function googleAccountRaceLimit() {
+  return window.electionCloud?.isSignedIn()
+    ? window.electionCloud.raceLimit
+    : Infinity;
+}
+
+/** Stop additions to a full Google account and explain how to make room. */
+function canFollowAnotherRace() {
+  if (followedRaceIds.length < googleAccountRaceLimit()) return true;
+  viewMessage = `Google accounts can save up to ${googleAccountRaceLimit()} races. ` +
+    'Remove a race from My Dashboard to follow another.';
+  render();
+  return false;
+}
+
+/** Expose only the small bridge Firebase needs; election logic stays here. */
+window.electionDashboard = {
+  guestRaces() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(FOLLOWED_RACES_STORAGE_KEY) || '[]');
+      return Array.isArray(raw) ? raw.filter(id => typeof id === 'string') : [];
+    } catch (error) {
+      return [];
+    }
+  },
+
+  /** Repaint only when the race IDs genuinely changed. */
+  applyRaces(ids) {
+    const uniqueIds = [...new Set(ids.filter(id => typeof id === 'string'))];
+    if (uniqueIds.length === followedRaceIds.length &&
+        uniqueIds.every((id, index) => id === followedRaceIds[index])) return;
+
+    followedRaceIds = uniqueIds;
+    render();
+    updateInstallBanner();
+
+    // Race details may be missing when logging in on a different device.
+    const unknownCustom = followedRaceIds.filter(id =>
+      id.startsWith('c:') && !customRaces[id] && !customRacesInFlight.has(id));
+    if (unknownCustom.length) {
+      runWithConcurrencyLimit(unknownCustom, 4, loadCustomRace).then(() => {
+        if (activeTab === 'dash') updateDashboardResults();
+        else render();
+      });
+    }
+    // loadResults reuses fresh feeds and retrieves a feed missing on this device.
+    loadResults();
+  },
+
+  // The signed-in account may load the same IDs as before (including an empty
+  // list), but the dashboard disclaimer still needs to update at login/logout.
+  refreshAccountUI() {
+    render();
+  },
+};
 
 // -----------------------------------------------------------------------------
 // 3. Convert civicAPI responses into the race/candidate format used by the UI
@@ -1028,15 +1098,17 @@ function searchLocalRaces(force = false) {
 
 /** Immediately show candidate data from search, then refresh from race detail. */
 async function followLocalRace(raceNumber, name) {
+  if (!canChangeFollowedRaces()) return;
   const id = 'c:' + raceNumber;
   if (followedRaceIds.includes(id)) return;
+  if (!canFollowAnotherRace()) return;
 
   customRaceNames[id] = name;
   const searchMatch = localSearchResults.find(race => String(race.id) === String(raceNumber));
   if (searchMatch && searchMatch.rr) customRaces[id] = searchMatch.rr;
 
   followedRaceIds.push(id);
-  saveFollowedRaces();
+  saveFollowedRaces('add', id);
   render();
   loadCustomRace(id, true).then(() => {
     if (activeTab === 'dash') updateDashboardResults();
@@ -1045,18 +1117,21 @@ async function followLocalRace(raceNumber, name) {
 }
 
 function followFeedRace(id) {
+  if (!canChangeFollowedRaces()) return;
   if (followedRaceIds.includes(id)) return;
+  if (!canFollowAnotherRace()) return;
   viewMessage = '';
   followedRaceIds.push(id);
-  saveFollowedRaces();
+  saveFollowedRaces('add', id);
   render();
 }
 
 function unfollowRace(id) {
+  if (!canChangeFollowedRaces()) return;
   followedRaceIds = followedRaceIds.filter(followedId => followedId !== id);
   delete customRaces[id];
   delete customRaceErrors[id];
-  saveFollowedRaces();
+  saveFollowedRaces('remove', id);
   render();
 }
 
@@ -1130,7 +1205,7 @@ function findViewHtml() {
     `<option value="${code}"${selectedState === code ? ' selected' : ''}>${name}</option>`
   ).join('');
 
-  return `<div class="bar"><span>${followedRaceIds.length} ${followedRaceIds.length === 1 ? 'race' : 'races'} followed</span><button class="btn alt" data-reload>Refresh</button></div>
+  return `<div class="bar"><span>${followedRaceIds.length} ${followedRaceIds.length === 1 ? 'race' : 'races'} followed</span></div>
   <div class="chips">${categoryChips}</div>
   <div class="search"><select id="state" aria-label="State"><option value="">All states</option>${stateOptions}</select><input id="q" type="search" value="${escapeHtml(searchText)}" placeholder="Race name or candidate" aria-label="Search races"></div>
   ${viewMessage ? `<div class="msg err">${escapeHtml(viewMessage)}</div>` : ''}<div id="list">${feedRaceListHtml()}</div>
@@ -1221,9 +1296,16 @@ function dashboardUpdatedText() {
 
 /** Personal dashboard table, including live totals and winner indicators. */
 function dashboardViewHtml() {
+  // Only Google-account dashboards show this note, immediately below the table.
+  // Existing accounts with more than 20 races retain their selections.
+  const limit = googleAccountRaceLimit();
+  const limitNote = Number.isFinite(limit)
+    ? `<p class="num dashboard-limit-note">Google accounts can save up to ${limit} races on their dashboard. To follow another race after reaching the limit, remove one first.</p>`
+    : '';
+
   if (!followedRaceIds.length) {
     renderedDashboardRaceRows = new Map();
-    return `<div class="empty"><b>No races yet</b>Pick the Senate, House or governor races you want to follow.<br><br><button class="btn" data-go="find">Find races</button></div>`;
+    return `<div class="empty"><b>No races yet</b>Pick the Senate, House or governor races you want to follow.<br><br><button class="btn" data-go="find">Find races</button></div>${limitNote}`;
   }
 
   renderedDashboardRaceRows = dashboardRowsByRace();
@@ -1231,6 +1313,7 @@ function dashboardViewHtml() {
 
   return `<div class="bar"><span id="dashboard-updated">${dashboardUpdatedText()}</span><button class="btn alt" data-reload>Refresh</button></div>
   <div class="wrap"><table><thead><tr><th>Race</th><th>Party</th><th>Candidate</th><th>Live results</th></tr></thead><tbody id="dashboard-rows">${tableRows}</tbody></table></div>
+  ${limitNote}
   <p class="num" style="margin:10px 4px">Before polls close, a race may list candidates who are not on the November ballot.</p>
   <details id="dashboard-debug"><summary>Raw data from civicAPI (for troubleshooting)</summary><div id="dashboard-debug-data">${dashboardDebugHtml()}</div></details>`;
 }
@@ -1343,6 +1426,8 @@ select('#main').addEventListener('submit', async event => {
   if (event.target.id !== 'idf') return;
   event.preventDefault();
 
+  if (!canChangeFollowedRaces()) return;
+  const accountAtSubmit = window.electionCloud?.accountKey() || 'guest';
   const raceNumber = select('#rid').value.trim();
   if (!/^\d+$/.test(raceNumber)) {
     viewMessage = 'Enter the numeric race ID.';
@@ -1354,10 +1439,16 @@ select('#main').addEventListener('submit', async event => {
     viewMessage = 'You already follow that race.';
     return render();
   }
+  if (!canFollowAnotherRace()) return;
 
   viewMessage = 'Looking up race ' + raceNumber + '…';
   render();
   await loadCustomRace(id);
+
+  // Do not add a race to a different Google account if sign-in changed while
+  // the civicAPI request was in flight.
+  if (!canChangeFollowedRaces() ||
+      (window.electionCloud?.accountKey() || 'guest') !== accountAtSubmit) return;
 
   if (customRaceErrors[id]) {
     viewMessage = `Could not load race ${raceNumber} (${customRaceErrors[id]}). Check the ID and try again.`;
@@ -1365,8 +1456,10 @@ select('#main').addEventListener('submit', async event => {
     return render();
   }
 
+  // Another device or browser tab may have filled the account during lookup.
+  if (followedRaceIds.includes(id) || !canFollowAnotherRace()) return;
   followedRaceIds.push(id);
-  saveFollowedRaces();
+  saveFollowedRaces('add', id);
   goToTab('dash');
 });
 

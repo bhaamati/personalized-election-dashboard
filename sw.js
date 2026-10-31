@@ -1,15 +1,25 @@
 'use strict';
 
-const CACHE = 'election-dashboard-shell-v1';
+/*
+ * Service worker: caches this site's static files for offline access.
+ * It never intercepts civicAPI requests. Live results still require internet.
+ *
+ * The cache name changes when we add assets (CSS/JS) to the app shell, so
+ * previously installed versions pick up the complete three-file app.
+ */
+const CACHE = 'election-dashboard-shell-v6';
 const SHELL = [
   './',
   './index.html',
+  './styles.css',
+  './app.js',
   './manifest.webmanifest',
   './icon-180.png',
   './icon-192.png',
   './icon-512.png'
 ];
 
+// First installation: save all the files needed to display the app offline.
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE)
@@ -18,6 +28,7 @@ self.addEventListener('install', event => {
   );
 });
 
+// Remove superseded versions of our own shell cache.
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys => Promise.all(
@@ -27,10 +38,13 @@ self.addEventListener('activate', event => {
   );
 });
 
+// Network first, cached response as fallback, only for same-origin GET requests.
 self.addEventListener('fetch', event => {
   const request = event.request;
+
   // Never handle civicAPI or other cross-origin resources.
   if (request.method !== 'GET' || new URL(request.url).origin !== self.location.origin) return;
+
   event.respondWith(
     fetch(request).then(response => {
       if (response.ok) {

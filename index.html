@@ -17,17 +17,47 @@
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <!-- The header and navigation remain visible across both app sections. -->
+    <!-- Header title and Google account controls share one top row. -->
     <header>
-      <h1>Election Dashboard</h1>
-      <p class="blurb">Personalize this dashboard to follow any election races you choose. </p>
-      <div class="sub">Results are unofficial until confirmed by election authorities and change as ballots are counted. The accuracy of the election results data is dependent on civicAPI. </div>
+      <div class="header-top">
+        <h1>Election Dashboard</h1>
+
+        <!-- Keep account controls outside #main so live result updates cannot
+             interrupt sign-in, sign-out, or sync messages. -->
+        <div class="header-account" aria-label="Account and saved races">
+          <div class="account-actions">
+            <button type="button" id="google-login" class="btn google-login" hidden>
+              <span>Sign in with Google</span>
+            </button>
+            <button type="button" id="google-retry" class="btn alt" hidden>Retry sync</button>
+            <button type="button" id="google-logout" class="btn alt" hidden>Sign out</button>
+          </div>
+          <!-- Hidden for guests; shown for signed-in account and sync errors. -->
+          <div class="account-copy" id="account-copy" hidden>
+            <strong id="account-title"></strong>
+            <span id="account-message" role="status" aria-live="polite"></span>
+          </div>
+        </div>
+      </div>
+      <p class="blurb">Personalize this dashboard to follow any election races you choose.</p>
+      <div class="sub">Results are unofficial until confirmed by election authorities and change as ballots are counted. The accuracy of the election results data is dependent on civicAPI. To save the races you've followed, sign in with your Google account.</div>
     </header>
 
     <nav role="tablist" aria-label="Election dashboard sections">
       <button role="tab" id="t-dash" aria-selected="true" aria-controls="main">My Dashboard</button>
       <button role="tab" id="t-find" aria-selected="false" aria-controls="main">Choose Races to Follow</button>
     </nav>
+
+    <section id="guest-import-banner" class="guest-import-banner" hidden>
+      <div class="import-copy">
+        <strong>Bring your saved races with you?</strong>
+        <p id="guest-import-description">You have races saved on this device.</p>
+      </div>
+      <div class="import-actions">
+        <button type="button" id="guest-import-yes" class="btn">Add to my account</button>
+        <button type="button" id="guest-import-no" class="btn alt">Not now</button>
+      </div>
+    </section>
 
     <!-- JavaScript shows this only when the PWA is eligible to be installed. -->
     <section id="install-banner" class="install-banner" hidden>
@@ -49,5 +79,7 @@
 
     <!-- Keep this script after the HTML so the elements above already exist. -->
     <script src="app.js"></script>
+    <!-- Firebase runs as a separate browser ES module, no build tools needed. -->
+    <script type="module" src="firebase-sync.js"></script>
   </body>
 </html>

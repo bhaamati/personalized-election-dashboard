@@ -13,13 +13,13 @@
 <style>
 :root{--bg:#ffffff;--card:#ffffff;--tint:#f1f4fb;--ink:#14213d;--mute:#56607a;--line:#d6dcec;--brand:#1b3a8c;--accent:#c8102e;--d:#1f4fc4;--r:#c8102e;--o:#6b7280;--ok:#1f7a4d;color-scheme:light}
 *{box-sizing:border-box}
-html,body{height:100%;margin:0}
-body{background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0)}
+html,body{height:auto;min-height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0); min-height:100vh}
 header{padding:20px 16px 10px;background:linear-gradient(90deg,var(--accent) 0 50%,var(--brand) 50% 100%) top/100% 6px no-repeat}
 h1{font:700 26px/1.1 Georgia,"Iowan Old Style",serif;margin:0;letter-spacing:-.01em;color:var(--brand)}
 .blurb{margin:6px 0 0;font-size:15px;color:var(--ink)}
 .sub{color:var(--mute);font-size:13px;margin-top:4px}
-main{flex:1;overflow-y:auto;padding:8px 12px 24px;-webkit-overflow-scrolling:touch}
+main{flex:1;overflow:visible;padding:8px 12px 24px}
 nav{display:flex;flex-shrink:0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--card)}
 nav button{flex:1;min-width:0;padding:13px 8px;border:0;background:none;color:var(--mute);font:600 15px system-ui;cursor:pointer}
 nav button[aria-selected=true]{color:var(--brand);box-shadow:inset 0 -3px 0 var(--accent)}
@@ -509,14 +509,14 @@ function dashView() {
   });
   const dbg = Object.entries(feeds).map(([k, f]) => `<b>${FEEDS[k].name}</b>${f.err ? ' (error: ' + esc(f.err) + ')' : ''}<pre>${esc(f.raw ? 'top-level keys: ' + Object.keys(Array.isArray(f.raw) ? f.raw[0] || {} : f.raw).join(', ') + '\nregions: ' + f.regions.length + '\nsample: ' + (JSON.stringify(f.regions[0] && f.regions[0].raw, null, 1) || 'none').slice(0, 1200) : 'not loaded')}</pre>`).join('');
   return `<div class="bar"><span>${last ? 'Updated ' + last.toLocaleTimeString() + ' · refreshes every 30 seconds' : 'Loading results…'}</span><button class="btn alt" data-reload>Refresh</button></div>
-  <div class="wrap"><table><thead><tr><th>Race</th><th>Candidate</th><th>Party</th><th>Live results</th></tr></thead><tbody>${rows}</tbody></table></div>
+  <div class="wrap"><table><thead><tr><th>Race</th><th>Party</th><th>Candidate</th><th>Live results</th></tr></thead><tbody>${rows}</tbody></table></div>
   <p class="num" style="margin:10px 4px">Before polls close, a race may list candidates who are not on the November ballot.</p>
   <details><summary>Raw data from civicAPI (for troubleshooting)</summary>${dbg}</details>`;
 }
 function render() {
-  const y = $('#main').scrollTop;
+  const y = window.scrollY;
   $('#main').innerHTML = (tab === 'dash' ? dashView() : findView()) + `<footer>Live results powered by <a href="https://civicapi.org" target="_blank" rel="noopener">civicAPI</a></footer>`;
-  $('#main').scrollTop = y;
+  window.scrollTo(0, y);
   $('#t-dash').setAttribute('aria-selected', tab === 'dash'); $('#t-find').setAttribute('aria-selected', tab === 'find');
 }
 function go(t) {

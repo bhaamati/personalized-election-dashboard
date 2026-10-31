@@ -26,3 +26,4 @@ to follow and tracking unofficial results, powered by [civicAPI](https://civicap
 - The service worker caches only this site's static files for an offline
   fallback. **Live results are unavailable without an internet connection.**
 - Results are unofficial until confirmed by election authorities.
+- This app was built with the help of ChatGPT (GPT-6) and Claude (Claude Sonnet 5.5). 

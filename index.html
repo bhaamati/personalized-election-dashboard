@@ -505,8 +505,7 @@ function dashView() {
     if (!r.cands.length) rows += `<tr class="first">${left}<td colspan="3">No candidates listed yet.</td></tr>`;
     r.cands.forEach((c, i) => {
       const yn = !c.party && isYN(c.name), k = yn ? (/^(yes|for|approve)/i.test(c.name.trim()) ? 'y' : 'n') : cls(c.party);
-      rows += `<tr${i ? '' : ' class="first"'}>${i ? '' : left}<td>${esc(c.name)}${c.won ? ' <span class="win">✓ Called</span>' : ''}</td><td>${yn ? '<span class="pty m">Measure</span>' : `<span class="pty ${k}">${esc(c.party || '—')}</span>`}</td><td class="track"><div class="meter"><i class="${k}" style="width:${Math.min(100, c.pct || 0)}%"></i></div><div class="num">${fmtPct(c.pct)}${c.votes ? ' · ' + c.votes.toLocaleString() + ' votes' : ''}</div></td></tr>`;
-    });
+      rows += `<tr${i ? '' : ' class="first"'}>${i ? '' : left}<td>${yn ? '<span class="pty m">Measure</span>' : `<span class="pty ${k}">${esc(c.party || '—')}</span>`}</td><td>${esc(c.name)}${c.won ? ' <span class="win">✓ Called</span>' : ''}</td><td class="track"><div class="meter"><i class="${k}" style="width:${Math.min(100, c.pct || 0)}%"></i></div><div class="num">${fmtPct(c.pct)}${c.votes ? ' · ' + c.votes.toLocaleString() + ' votes' : ''}</div></td></tr>`;    });
   });
   const dbg = Object.entries(feeds).map(([k, f]) => `<b>${FEEDS[k].name}</b>${f.err ? ' (error: ' + esc(f.err) + ')' : ''}<pre>${esc(f.raw ? 'top-level keys: ' + Object.keys(Array.isArray(f.raw) ? f.raw[0] || {} : f.raw).join(', ') + '\nregions: ' + f.regions.length + '\nsample: ' + (JSON.stringify(f.regions[0] && f.regions[0].raw, null, 1) || 'none').slice(0, 1200) : 'not loaded')}</pre>`).join('');
   return `<div class="bar"><span>${last ? 'Updated ' + last.toLocaleTimeString() + ' · refreshes every 30 seconds' : 'Loading results…'}</span><button class="btn alt" data-reload>Refresh</button></div>

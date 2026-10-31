@@ -5,11 +5,10 @@
  * Do not paste a private key, client secret, or Admin SDK JSON here.
  */
 export const firebaseConfig = {
-  apiKey: "AIzaSyCR7Gw51AbY6kUtnqFpucoe7E1yhblCNuU",
-  authDomain: "election-dashboard-653f8.firebaseapp.com",
-  projectId: "election-dashboard-653f8",
-  storageBucket: "election-dashboard-653f8.firebasestorage.app",
-  messagingSenderId: "510674314587",
-  appId: "1:510674314587:web:e08cee8578acc453dc267e",
-  measurementId: "G-7T9D9HKMFH"
+  apiKey: "PASTE_YOUR_API_KEY",
+  authDomain: "PASTE_YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "PASTE_YOUR_PROJECT_ID",
+  storageBucket: "PASTE_YOUR_STORAGE_BUCKET",
+  messagingSenderId: "PASTE_YOUR_MESSAGING_SENDER_ID",
+  appId: "PASTE_YOUR_APP_ID"
 };

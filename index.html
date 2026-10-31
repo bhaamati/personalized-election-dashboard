@@ -17,31 +17,36 @@
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <!-- The header and navigation remain visible across both app sections. -->
+    <!-- Header title and Google account controls share one top row. -->
     <header>
-      <h1>Election Dashboard</h1>
-      <p class="blurb">Personalize this dashboard to follow any election races you choose. </p>
-      <div class="sub">Results are unofficial until confirmed by election authorities and change as ballots are counted. The accuracy of the election results data is dependent on civicAPI. </div>
+      <div class="header-top">
+        <h1>Election Dashboard</h1>
+
+        <!-- Keep account controls outside #main so live result updates cannot
+             interrupt sign-in, sign-out, or sync messages. -->
+        <div class="header-account" aria-label="Account and saved races">
+          <div class="account-actions">
+            <button type="button" id="google-login" class="btn google-login" hidden>
+              <span>Sign in with Google</span>
+            </button>
+            <button type="button" id="google-retry" class="btn alt" hidden>Retry sync</button>
+            <button type="button" id="google-logout" class="btn alt" hidden>Sign out</button>
+          </div>
+          <!-- Hidden for guests; shown for signed-in account and sync errors. -->
+          <div class="account-copy" id="account-copy" hidden>
+            <strong id="account-title"></strong>
+            <span id="account-message" role="status" aria-live="polite"></span>
+          </div>
+        </div>
+      </div>
+      <p class="blurb">Personalize this dashboard to follow any election races you choose.</p>
+      <div class="sub">Results are unofficial until confirmed by election authorities and change as ballots are counted. The accuracy of the election results data is dependent on civicAPI. To save the races you've followed, sign in with your Google account.</div>
     </header>
 
     <nav role="tablist" aria-label="Election dashboard sections">
       <button role="tab" id="t-dash" aria-selected="true" aria-controls="main">My Dashboard</button>
       <button role="tab" id="t-find" aria-selected="false" aria-controls="main">Choose Races to Follow</button>
     </nav>
-
-    <!-- Account controls stay outside #main, so a race-results redraw never
-         interrupts Google sign-in, cloud status, or guest import controls. -->
-    <section class="account-bar" aria-label="Account and saved races">
-      <div class="account-copy">
-        <strong id="account-title">Guest dashboard</strong>
-        <span id="account-message" role="status" aria-live="polite">Races are saved in this browser.</span>
-      </div>
-      <div class="account-actions">
-        <button type="button" id="google-login" class="btn" hidden>Sign in with Google</button>
-        <button type="button" id="google-retry" class="btn alt" hidden>Retry sync</button>
-        <button type="button" id="google-logout" class="btn alt" hidden>Sign out</button>
-      </div>
-    </section>
 
     <section id="guest-import-banner" class="guest-import-banner" hidden>
       <div class="import-copy">

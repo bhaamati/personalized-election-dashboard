@@ -19,6 +19,7 @@ import { firebaseConfig } from './firebase-config.js';
 
 const dashboard = window.electionDashboard;
 const titleElement = document.getElementById('account-title');
+const copyElement = document.getElementById('account-copy');
 const messageElement = document.getElementById('account-message');
 const loginButton = document.getElementById('google-login');
 const logoutButton = document.getElementById('google-logout');
@@ -64,8 +65,13 @@ function setAccountMode(next) {
 }
 
 function setMessage(title, description) {
+  // Guests see no account-status label; keep messages when something needs
+  // attention (for example, a login failure or a failed cloud save).
   titleElement.textContent = title;
   messageElement.textContent = description;
+  titleElement.hidden = !title;
+  messageElement.hidden = !description;
+  copyElement.hidden = !title && !description;
 }
 
 function displayGuest() {
@@ -74,7 +80,7 @@ function displayGuest() {
   userDocument = null;
   cloudIds = [];
   changesPending.clear();
-  setMessage('Guest dashboard', 'Races are saved in this browser only.');
+  setMessage('', '');
   loginButton.hidden = false;
   logoutButton.hidden = true;
   retryButton.hidden = true;
@@ -259,7 +265,7 @@ loginButton.addEventListener('click', async () => {
   } catch (error) {
     console.error('Google sign-in failed:', error);
     const code = error?.code || 'unknown';
-    setMessage('Guest dashboard', `Google sign-in failed (${code}). You can try again.`);
+    setMessage('', `Google sign-in failed (${code}). You can try again.`);
   } finally {
     loginButton.disabled = false;
   }
@@ -327,8 +333,7 @@ window.addEventListener('offline', () => { if (user) displayAccount(); });
 
 // If configuration is still a template, guest mode remains fully functional.
 if (!isConfigured(firebaseConfig)) {
-  setMessage('Guest dashboard',
-    'Google sign-in will be available once firebase-config.js is configured.');
+  setMessage('', '');
   console.info('Firebase is not configured yet: edit firebase-config.js.');
 } else {
   try {
@@ -353,7 +358,6 @@ if (!isConfigured(firebaseConfig)) {
   } catch (error) {
     console.error('Firebase initialization failed:', error);
     setAccountMode('guest');
-    setMessage('Guest dashboard',
-      'Google sign-in is unavailable. Check your Firebase configuration.');
+    setMessage('', '');
   }
 }

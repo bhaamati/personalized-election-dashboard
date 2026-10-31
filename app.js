@@ -781,6 +781,22 @@ async function loadResults(force = false) {
 // 5. Statewide, local, and candidate search
 // -----------------------------------------------------------------------------
 
+/**
+ * civicAPI search results identify ballot measures with `type: "Referendum"`.
+ * `election_type` describes election scope in search results (e.g. Statewide),
+ * while in race details it can identify the contest type. Treat these as
+ * independent attributes so referendums remain statewide/local as applicable.
+ */
+function isReferendumRace(object) {
+  if (!object || typeof object !== 'object') return false;
+  const nested = object.race && typeof object.race === 'object'
+    ? object.race
+    : object.data && typeof object.data === 'object' && !Array.isArray(object.data)
+      ? object.data : object;
+  return [object.type, object.election_type, nested.type, nested.election_type]
+    .some(value => typeof value === 'string' && value.trim().toLowerCase() === 'referendum');
+}
+
 /** Normalize the results of /race/search, preserving candidates when supplied. */
 function normalizeSearchResults(response) {
   let races = Array.isArray(response)
@@ -798,6 +814,7 @@ function normalizeSearchResults(response) {
       name: name || 'Race ' + id,
       noName: !name,
       scope: raceScope(race),
+      isReferendum: isReferendumRace(race),
       sub: [
         firstAvailableField(race, ['district', 'province', 'state']),
         firstAvailableField(race, ['date', 'election_date', 'electionDate']),
@@ -837,11 +854,13 @@ function localResultsHtml() {
     ? [['statewide', 'Statewide races']]
     : activeCategory === 'local'
       ? [['local', 'Local races']]
-      : [
-        ['statewide', 'Statewide'],
-        ['local', 'Local'],
-        ['other', 'Unclassified races'],
-      ];
+      : activeCategory === 'referendums'
+        ? [['referendums', 'Referendums']]
+        : [
+          ['statewide', 'Statewide'],
+          ['local', 'Local'],
+          ['other', 'Unclassified races'],
+        ];
 
   function raceCard(race) {
     const id = 'c:' + race.id;
@@ -871,7 +890,9 @@ function localResultsHtml() {
 
   groups.forEach(([category, heading]) => {
     const matches = visibleCandidates
-      .filter(race => searchCategoryForRace(race) === category)
+      .filter(race => category === 'referendums'
+        ? race.isReferendum
+        : searchCategoryForRace(race) === category)
       .sort((first, second) => first.name.localeCompare(second.name, 'en', { numeric: true }));
 
     if (matches.length) {
@@ -888,7 +909,9 @@ function localResultsHtml() {
   const noResultsMessage = !matchingCount && localSearchResults.length && !localSearchMessage
     ? `<div class="msg">${activeCategory === 'all'
       ? 'Everything that matched is already listed above.'
-      : 'No races in this category for that search.'}</div>`
+      : activeCategory === 'referendums'
+        ? 'No referendums found for that search.'
+        : 'No races in this category for that search.'}</div>`
     : '';
 
   const debugPanel = localSearchDebugData
@@ -923,7 +946,7 @@ function searchLocalRaces(force = false) {
   const key = JSON.stringify([selectedState, query]);
   if (force) searchCacheKey = '';
 
-  if (!['all', 'statewide', 'local'].includes(activeCategory) ||
+  if (!['all', 'statewide', 'local', 'referendums'].includes(activeCategory) ||
       (!selectedState && query.length < 3)) {
     clearTimeout(localSearchTimer);
     if (searchAbortController) searchAbortController.abort();
@@ -933,7 +956,7 @@ function searchLocalRaces(force = false) {
     localSearchResults = [];
     localSearchDebugData = null;
     localSearchMessage = (
-      ['all', 'statewide', 'local'].includes(activeCategory) &&
+      ['all', 'statewide', 'local', 'referendums'].includes(activeCategory) &&
       !selectedState && query.length < 3 && activeCategory !== 'all'
     ) ? `Pick a state to see ${activeCategory} races.` : '';
     return renderLocalResults();
@@ -1009,6 +1032,7 @@ function searchLocalRaces(force = false) {
         }
         race.rr = buildCustomRace(race.id, raw);
         if (race.rr.scope) race.scope = race.rr.scope;
+        if (isReferendumRace(raw)) race.isReferendum = true;
         if (race.noName && !/^Race \d+$/.test(race.rr.label)) {
           race.name = race.rr.label;
           race.noName = false;
@@ -1141,7 +1165,7 @@ function unfollowRace(id) {
 
 /** Main Senate / House / Governor list on "Choose Races to Follow". */
 function feedRaceListHtml() {
-  if (activeCategory === 'statewide' || activeCategory === 'local') return '';
+  if (['statewide', 'local', 'referendums'].includes(activeCategory)) return '';
 
   const races = allKnownRaces();
   if (!races.length) {
@@ -1197,6 +1221,7 @@ function findViewHtml() {
     ['gov', 'Governor'],
     ['statewide', 'Statewide'],
     ['local', 'Local'],
+    ['referendums', 'Ballot Measures'],
   ].map(([value, label]) =>
     `<button class="chip" data-ch="${value}" aria-pressed="${activeCategory === value}">${label}</button>`
   ).join('');
@@ -1209,8 +1234,8 @@ function findViewHtml() {
   <div class="chips">${categoryChips}</div>
   <div class="search"><select id="state" aria-label="State"><option value="">All states</option>${stateOptions}</select><input id="q" type="search" value="${escapeHtml(searchText)}" placeholder="Race name or candidate" aria-label="Search races"></div>
   ${viewMessage ? `<div class="msg err">${escapeHtml(viewMessage)}</div>` : ''}<div id="list">${feedRaceListHtml()}</div>
-  ${['all', 'statewide', 'local'].includes(activeCategory) ? `<div id="local">${localResultsHtml()}</div>` : ''}
-  <p class="num" style="margin:12px 4px">Candidate-name search covers U.S. House, Senate and governor races. Statewide, Local and Other races are searched by race name. Races already listed under Senate, House or Governor are not repeated.</p>
+  ${['all', 'statewide', 'local', 'referendums'].includes(activeCategory) ? `<div id="local">${localResultsHtml()}</div>` : ''}
+  <p class="num" style="margin:12px 4px">Candidate-name search covers U.S. House, Senate and governor races. Statewide, Local, Referendums and Other races are searched by race name. Races already listed under Senate, House or Governor are not repeated.</p>
   <details><summary>Can’t find a race? Add it by civicAPI race ID</summary><form class="search" id="idf" style="margin-top:8px"><input id="rid" inputmode="numeric" placeholder="Race ID, e.g. 12345" aria-label="civicAPI race ID"><button class="btn">Add</button></form></details>`;
 }
 

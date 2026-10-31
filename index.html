@@ -29,6 +29,31 @@
       <button role="tab" id="t-find" aria-selected="false" aria-controls="main">Choose Races to Follow</button>
     </nav>
 
+    <!-- Account controls stay outside #main, so a race-results redraw never
+         interrupts Google sign-in, cloud status, or guest import controls. -->
+    <section class="account-bar" aria-label="Account and saved races">
+      <div class="account-copy">
+        <strong id="account-title">Guest dashboard</strong>
+        <span id="account-message" role="status" aria-live="polite">Races are saved in this browser.</span>
+      </div>
+      <div class="account-actions">
+        <button type="button" id="google-login" class="btn" hidden>Sign in with Google</button>
+        <button type="button" id="google-retry" class="btn alt" hidden>Retry sync</button>
+        <button type="button" id="google-logout" class="btn alt" hidden>Sign out</button>
+      </div>
+    </section>
+
+    <section id="guest-import-banner" class="guest-import-banner" hidden>
+      <div class="import-copy">
+        <strong>Bring your saved races with you?</strong>
+        <p id="guest-import-description">You have races saved on this device.</p>
+      </div>
+      <div class="import-actions">
+        <button type="button" id="guest-import-yes" class="btn">Add to my account</button>
+        <button type="button" id="guest-import-no" class="btn alt">Not now</button>
+      </div>
+    </section>
+
     <!-- JavaScript shows this only when the PWA is eligible to be installed. -->
     <section id="install-banner" class="install-banner" hidden>
       <div class="install-text">
@@ -49,5 +74,7 @@
 
     <!-- Keep this script after the HTML so the elements above already exist. -->
     <script src="app.js"></script>
+    <!-- Firebase runs as a separate browser ES module, no build tools needed. -->
+    <script type="module" src="firebase-sync.js"></script>
   </body>
 </html>

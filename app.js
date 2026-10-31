@@ -315,18 +315,66 @@ try {
 
 activeTab = followedRaceIds.length ? 'dash' : 'find';
 
-function saveFollowedRaces() {
-  try {
-    localStorage.setItem(
-      FOLLOWED_RACES_STORAGE_KEY,
-      JSON.stringify(followedRaceIds),
-    );
-  } catch (error) {
-    // Browsers in private/restricted modes may reject localStorage writes.
+/**
+ * Guests still use the exact existing storage key. Signed-in users write only
+ * the individual change to Firestore; do not overwrite this device's guest list.
+ */
+function saveFollowedRaces(action, raceId) {
+  if (window.electionCloud && window.electionCloud.isSignedIn()) {
+    window.electionCloud.saveChange(action, raceId);
+  } else {
+    try {
+      localStorage.setItem(
+        FOLLOWED_RACES_STORAGE_KEY,
+        JSON.stringify(followedRaceIds),
+      );
+    } catch (error) {
+      // Browsers in private/restricted modes may reject localStorage writes.
+    }
   }
 
   updateInstallBanner();
 }
+
+/** Prevent accidental edits while Google is switching/loading an account. */
+function canChangeFollowedRaces() {
+  return !window.electionCloud || window.electionCloud.canEdit();
+}
+
+/** Expose only the small bridge Firebase needs; election logic stays here. */
+window.electionDashboard = {
+  guestRaces() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(FOLLOWED_RACES_STORAGE_KEY) || '[]');
+      return Array.isArray(raw) ? raw.filter(id => typeof id === 'string') : [];
+    } catch (error) {
+      return [];
+    }
+  },
+
+  /** Repaint only when the race IDs genuinely changed. */
+  applyRaces(ids) {
+    const uniqueIds = [...new Set(ids.filter(id => typeof id === 'string'))];
+    if (uniqueIds.length === followedRaceIds.length &&
+        uniqueIds.every((id, index) => id === followedRaceIds[index])) return;
+
+    followedRaceIds = uniqueIds;
+    render();
+    updateInstallBanner();
+
+    // Race details may be missing when logging in on a different device.
+    const unknownCustom = followedRaceIds.filter(id =>
+      id.startsWith('c:') && !customRaces[id] && !customRacesInFlight.has(id));
+    if (unknownCustom.length) {
+      runWithConcurrencyLimit(unknownCustom, 4, loadCustomRace).then(() => {
+        if (activeTab === 'dash') updateDashboardResults();
+        else render();
+      });
+    }
+    // loadResults reuses fresh feeds and retrieves a feed missing on this device.
+    loadResults();
+  },
+};
 
 // -----------------------------------------------------------------------------
 // 3. Convert civicAPI responses into the race/candidate format used by the UI
@@ -1028,6 +1076,7 @@ function searchLocalRaces(force = false) {
 
 /** Immediately show candidate data from search, then refresh from race detail. */
 async function followLocalRace(raceNumber, name) {
+  if (!canChangeFollowedRaces()) return;
   const id = 'c:' + raceNumber;
   if (followedRaceIds.includes(id)) return;
 
@@ -1036,7 +1085,7 @@ async function followLocalRace(raceNumber, name) {
   if (searchMatch && searchMatch.rr) customRaces[id] = searchMatch.rr;
 
   followedRaceIds.push(id);
-  saveFollowedRaces();
+  saveFollowedRaces('add', id);
   render();
   loadCustomRace(id, true).then(() => {
     if (activeTab === 'dash') updateDashboardResults();
@@ -1045,18 +1094,20 @@ async function followLocalRace(raceNumber, name) {
 }
 
 function followFeedRace(id) {
+  if (!canChangeFollowedRaces()) return;
   if (followedRaceIds.includes(id)) return;
   viewMessage = '';
   followedRaceIds.push(id);
-  saveFollowedRaces();
+  saveFollowedRaces('add', id);
   render();
 }
 
 function unfollowRace(id) {
+  if (!canChangeFollowedRaces()) return;
   followedRaceIds = followedRaceIds.filter(followedId => followedId !== id);
   delete customRaces[id];
   delete customRaceErrors[id];
-  saveFollowedRaces();
+  saveFollowedRaces('remove', id);
   render();
 }
 
@@ -1343,6 +1394,8 @@ select('#main').addEventListener('submit', async event => {
   if (event.target.id !== 'idf') return;
   event.preventDefault();
 
+  if (!canChangeFollowedRaces()) return;
+  const accountAtSubmit = window.electionCloud?.accountKey() || 'guest';
   const raceNumber = select('#rid').value.trim();
   if (!/^\d+$/.test(raceNumber)) {
     viewMessage = 'Enter the numeric race ID.';
@@ -1359,6 +1412,11 @@ select('#main').addEventListener('submit', async event => {
   render();
   await loadCustomRace(id);
 
+  // Do not add a race to a different Google account if sign-in changed while
+  // the civicAPI request was in flight.
+  if (!canChangeFollowedRaces() ||
+      (window.electionCloud?.accountKey() || 'guest') !== accountAtSubmit) return;
+
   if (customRaceErrors[id]) {
     viewMessage = `Could not load race ${raceNumber} (${customRaceErrors[id]}). Check the ID and try again.`;
     delete customRaceErrors[id];
@@ -1366,7 +1424,7 @@ select('#main').addEventListener('submit', async event => {
   }
 
   followedRaceIds.push(id);
-  saveFollowedRaces();
+  saveFollowedRaces('add', id);
   goToTab('dash');
 });
 

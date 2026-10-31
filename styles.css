@@ -471,3 +471,37 @@ footer a {
     flex: 1;
   }
 }
+
+/* Google account controls and optional guest-to-account import invitation. */
+.account-bar,
+.guest-import-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--card);
+}
+
+.guest-import-banner { background: var(--tint); }
+.account-bar[hidden],
+.guest-import-banner[hidden],
+.account-bar button[hidden],
+.guest-import-banner button[hidden] { display: none; }
+.account-copy,
+.import-copy { flex: 1; min-width: 0; }
+.account-copy strong,
+.import-copy strong { display: block; color: var(--brand); font-size: 14px; }
+.account-copy span,
+.import-copy p { display: block; color: var(--mute); font-size: 12px; margin: 3px 0 0; overflow-wrap: anywhere; }
+.account-actions,
+.import-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Switching Google accounts must not allow edits before their saved races load. */
+body.account-loading #main { opacity: .65; pointer-events: none; }
+
+@media (max-width: 540px) {
+  .account-bar, .guest-import-banner { align-items: stretch; flex-direction: column; }
+  .account-actions .btn, .import-actions .btn { flex: 1; }
+}

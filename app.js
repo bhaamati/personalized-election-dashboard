@@ -100,6 +100,8 @@ const customRacesInFlight = new Map();
 const SEARCH_CACHE_MAX_ENTRIES = 20;
 const cachedSearchResponses = new Map();
 const cachedRaceDetails = new Map();
+// Share simultaneous detail fetches, including those started by different searches.
+const raceDetailsInFlight = new Map();
 
 // HTML for each race currently displayed in the dashboard. This lets a live
 // refresh replace just the rows whose visible data changed.
@@ -125,20 +127,134 @@ function cacheValue(cache, key, value) {
   }
 }
 
-/** Shared race-detail fetch; followed races bypass the discovery cache on polling. */
+/**
+ * Reuse a larger state-search response only when it represents a complete set
+ * small enough to fit in the requested limit. Never take an arbitrary first
+ * 100 from a 500-result response: civicAPI's ordering is not guaranteed.
+ *
+ * The other request parameters (state, query, country, dates) must be equal,
+ * and an expired cache entry is never reused.
+ */
+function getCompatibleCachedStateSearch(parameters) {
+  if (!parameters.get('province')) return undefined;
+
+  const requestedLimit = Number(parameters.get('limit'));
+  const matchingParameters = new URLSearchParams(parameters);
+  matchingParameters.delete('limit');
+
+  for (const cacheKey of cachedSearchResponses.keys()) {
+    const cachedParameters = new URLSearchParams(cacheKey);
+    const largerLimit = Number(cachedParameters.get('limit'));
+    if (largerLimit <= requestedLimit) continue;
+    cachedParameters.delete('limit');
+    if (cachedParameters.toString() !== matchingParameters.toString()) continue;
+
+    const response = getCachedValue(cachedSearchResponses, cacheKey);
+    if (response === undefined) continue;
+
+    const raceList = Array.isArray(response)
+      ? response
+      : firstAvailableField(response, ['races', 'results', 'data', 'items', 'hits']);
+    if (raceList == null) continue;
+    const races = Array.isArray(raceList) ? raceList : Object.values(raceList);
+
+    // An unsaturated larger request is complete, unless response metadata
+    // explicitly says there are more races than were returned.
+    const reportedCount = response && !Array.isArray(response)
+      ? Number(response.count)
+      : NaN;
+    if (races.length >= largerLimit || races.length > requestedLimit ||
+        (Number.isFinite(reportedCount) && reportedCount > races.length) ||
+        response.has_more === true || response.hasMore === true ||
+        response.next != null || response.next_page != null) {
+      continue;
+    }
+    return response;
+  }
+  return undefined;
+}
+
+/** Create the same AbortError that fetch would return for a canceled search. */
+function raceDetailAbortError() {
+  const error = new Error('The race detail request was aborted.');
+  error.name = 'AbortError';
+  return error;
+}
+
+/**
+ * Fetch race details only once for simultaneous callers. Each caller may have
+ * its own AbortSignal: canceling one search stops only that caller, while the
+ * underlying request is canceled when nobody is waiting for it anymore.
+ *
+ * The completed-response cache is used only when explicitly requested;
+ * live polling and manual refreshes still fetch fresh results.
+ */
 async function getRaceDetail(raceNumber, { signal, useCache = false } = {}) {
+  if (signal && signal.aborted) throw raceDetailAbortError();
+
   const key = String(raceNumber);
   if (useCache) {
     const cached = getCachedValue(cachedRaceDetails, key);
     if (cached !== undefined) return cached;
   }
 
-  const response = await fetch(`${API_BASE_URL}/race/${encodeURIComponent(raceNumber)}`,
-    signal ? { signal } : undefined);
-  if (!response.ok) throw new Error('HTTP ' + response.status);
-  const detail = await response.json();
-  if (!signal || !signal.aborted) cacheValue(cachedRaceDetails, key, detail);
-  return detail;
+  let request = raceDetailsInFlight.get(key);
+  if (!request) {
+    const controller = new AbortController();
+    request = { controller, subscribers: 0, finished: false, promise: null };
+    request.promise = (async () => {
+      const response = await fetch(`${API_BASE_URL}/race/${encodeURIComponent(raceNumber)}`,
+        { signal: controller.signal });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const detail = await response.json();
+      if (!controller.signal.aborted) cacheValue(cachedRaceDetails, key, detail);
+      return detail;
+    })();
+    raceDetailsInFlight.set(key, request);
+
+    // Supply both success and failure handlers to avoid unhandled rejections.
+    request.promise.then(
+      () => {
+        request.finished = true;
+        if (raceDetailsInFlight.get(key) === request) raceDetailsInFlight.delete(key);
+      },
+      () => {
+        request.finished = true;
+        if (raceDetailsInFlight.get(key) === request) raceDetailsInFlight.delete(key);
+      },
+    );
+  }
+
+  // Returning a separate promise lets each caller cancel independently.
+  return new Promise((resolve, reject) => {
+    request.subscribers++;
+    let settled = false;
+
+    function release() {
+      if (settled) return false;
+      settled = true;
+      if (signal) signal.removeEventListener('abort', abort);
+      request.subscribers--;
+      if (!request.subscribers && !request.finished) {
+        // Remove the abandoned request now so a new search can start afresh.
+        if (raceDetailsInFlight.get(key) === request) raceDetailsInFlight.delete(key);
+        request.controller.abort();
+      }
+      return true;
+    }
+
+    function abort() {
+      if (release()) reject(raceDetailAbortError());
+    }
+
+    if (signal) signal.addEventListener('abort', abort, { once: true });
+    request.promise.then(
+      detail => { if (release()) resolve(detail); },
+      error => { if (release()) reject(error); },
+    );
+    // Handle an abort occurring between the first check and listener setup.
+    if (signal && signal.aborted) abort();
+  });
 }
 
 const select = selector => document.querySelector(selector);
@@ -794,6 +910,11 @@ function searchLocalRaces(force = false) {
       if (!force) {
         const cached = getCachedValue(cachedSearchResponses, requestKey);
         if (cached !== undefined) return cached;
+
+        // A complete 500-race state response can also satisfy a 100-race
+        // fallback without an extra network call, when it contains <= 100 races.
+        const compatible = getCompatibleCachedStateSearch(parameters);
+        if (compatible !== undefined) return compatible;
       }
 
       const response = await fetch(`${API_BASE_URL}/race/search?${parameters}`, { signal });

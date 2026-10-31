@@ -7,7 +7,7 @@
  * The cache name changes when we add assets (CSS/JS) to the app shell, so
  * previously installed versions pick up the complete three-file app.
  */
-const CACHE = 'election-dashboard-shell-v3';
+const CACHE = 'election-dashboard-shell-v6';
 const SHELL = [
   './',
   './index.html',

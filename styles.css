@@ -246,6 +246,49 @@ td.race small {
   font-weight: 700;
 }
 
+/* Consistent, content-aware dashboard columns and rows */
+/*
+ * These are preferred proportions, not rigid column sizes. Automatic table
+ * layout lets the browser give more space to a column when its content needs
+ * it. Each column keeps the same width for every race in the table.
+ *
+ * Race and Candidate get the most room; Live results only needs enough space
+ * for a legible vote bar and count. On small screens the table scrolls
+ * horizontally rather than forcing everything into tiny columns.
+ */
+.wrap table {
+  table-layout: auto;
+  min-width: 650px;
+}
+
+.wrap thead th:nth-child(1) { width: 36%; } /* Race */
+.wrap thead th:nth-child(2) { width: 13%; } /* Party */
+.wrap thead th:nth-child(3) { width: 31%; } /* Candidate */
+.wrap thead th:nth-child(4) { width: 20%; } /* Live results */
+
+/* Allow long race titles to wrap instead of widening the entire table. */
+.wrap td.race {
+  min-width: 200px;
+}
+
+/* Keep badges such as 'Measure' readable as a single word. */
+.wrap .pty {
+  white-space: nowrap;
+}
+
+/*
+ * Row height is a minimum, not a fixed limit: ordinary candidates have
+ * consistent spacing, while longer text can wrap and make its row taller.
+ * This also works with race-name cells that span multiple candidate rows.
+ */
+#dashboard-rows tr {
+  height: 52px;
+}
+
+#dashboard-rows td {
+  overflow-wrap: anywhere;
+}
+
 /* Empty dashboard, race finder, and feedback messages */
 .empty {
   text-align: center;

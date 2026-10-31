@@ -1,15 +1,33 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Each signed-in account can only read/write its own followed race IDs.
     match /users/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow create, update: if request.auth != null
-        && request.auth.uid == userId
-        && request.resource.data.keys().hasOnly(['followedRaces'])
-        && request.resource.data.followedRaces is list
-        && request.resource.data.followedRaces.size() <= 500;
-      allow delete: if request.auth != null && request.auth.uid == userId;
+      // Each Google account can access only its own saved race IDs.
+      function owner() {
+        return request.auth != null && request.auth.uid == userId;
+      }
+      function validDocument() {
+        return request.resource.data.keys().hasOnly(['followedRaces'])
+          && request.resource.data.keys().hasAll(['followedRaces'])
+          && request.resource.data.followedRaces is list;
+      }
+
+      allow read: if owner();
+      allow create: if owner() && validDocument()
+        && request.resource.data.followedRaces.size() <= 50;
+
+      allow update: if owner() && validDocument() && (
+        request.resource.data.followedRaces.size() <= 50
+        // If an existing account followed 51+ races before this change,
+        // preserve its data and allow ONLY removals until it drops to 50.
+        || (
+          resource.data.followedRaces is list
+          && resource.data.followedRaces.size() > 50
+          && request.resource.data.followedRaces.size() < resource.data.followedRaces.size()
+          && request.resource.data.followedRaces.hasOnly(resource.data.followedRaces)
+        )
+      );
+      allow delete: if owner();
     }
   }
 }

@@ -30,10 +30,10 @@ const importYes = document.getElementById('guest-import-yes');
 const importNo = document.getElementById('guest-import-no');
 
 // Preserve previously saved lists (up to the old 500-entry safeguard), but
-// only allow up to 20 race selections for new Google-account additions.
+// only allow up to 50 race selections for new Google-account additions.
 // Guest localStorage is never subject to this limit.
 const MAX_STORED = 500;
-const GOOGLE_ACCOUNT_RACE_LIMIT = 20;
+const GOOGLE_ACCOUNT_RACE_LIMIT = 50;
 let auth;
 let db;
 let user = null;

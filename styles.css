@@ -548,3 +548,8 @@ footer a {
 /* Switching Google accounts must not allow edits before their saved races load. */
 body.account-loading #main { opacity: .65; pointer-events: none; }
 
+
+/* Only signed-in accounts see this note below their dashboard table. */
+.dashboard-limit-note {
+  margin: 10px 4px;
+}

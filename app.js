@@ -341,6 +341,22 @@ function canChangeFollowedRaces() {
   return !window.electionCloud || window.electionCloud.canEdit();
 }
 
+/** Guest dashboards have no race cap; only signed-in Google accounts do. */
+function googleAccountRaceLimit() {
+  return window.electionCloud?.isSignedIn()
+    ? window.electionCloud.raceLimit
+    : Infinity;
+}
+
+/** Stop additions to a full Google account and explain how to make room. */
+function canFollowAnotherRace() {
+  if (followedRaceIds.length < googleAccountRaceLimit()) return true;
+  viewMessage = `Google accounts can save up to ${googleAccountRaceLimit()} races. ` +
+    'Remove a race from My Dashboard to follow another.';
+  render();
+  return false;
+}
+
 /** Expose only the small bridge Firebase needs; election logic stays here. */
 window.electionDashboard = {
   guestRaces() {
@@ -373,6 +389,12 @@ window.electionDashboard = {
     }
     // loadResults reuses fresh feeds and retrieves a feed missing on this device.
     loadResults();
+  },
+
+  // The signed-in account may load the same IDs as before (including an empty
+  // list), but the dashboard disclaimer still needs to update at login/logout.
+  refreshAccountUI() {
+    render();
   },
 };
 
@@ -1079,6 +1101,7 @@ async function followLocalRace(raceNumber, name) {
   if (!canChangeFollowedRaces()) return;
   const id = 'c:' + raceNumber;
   if (followedRaceIds.includes(id)) return;
+  if (!canFollowAnotherRace()) return;
 
   customRaceNames[id] = name;
   const searchMatch = localSearchResults.find(race => String(race.id) === String(raceNumber));
@@ -1096,6 +1119,7 @@ async function followLocalRace(raceNumber, name) {
 function followFeedRace(id) {
   if (!canChangeFollowedRaces()) return;
   if (followedRaceIds.includes(id)) return;
+  if (!canFollowAnotherRace()) return;
   viewMessage = '';
   followedRaceIds.push(id);
   saveFollowedRaces('add', id);
@@ -1181,7 +1205,7 @@ function findViewHtml() {
     `<option value="${code}"${selectedState === code ? ' selected' : ''}>${name}</option>`
   ).join('');
 
-  return `<div class="bar"><span>${followedRaceIds.length} ${followedRaceIds.length === 1 ? 'race' : 'races'} followed</span><button class="btn alt" data-reload>Refresh</button></div>
+  return `<div class="bar"><span>${followedRaceIds.length} ${followedRaceIds.length === 1 ? 'race' : 'races'} followed</span></div>
   <div class="chips">${categoryChips}</div>
   <div class="search"><select id="state" aria-label="State"><option value="">All states</option>${stateOptions}</select><input id="q" type="search" value="${escapeHtml(searchText)}" placeholder="Race name or candidate" aria-label="Search races"></div>
   ${viewMessage ? `<div class="msg err">${escapeHtml(viewMessage)}</div>` : ''}<div id="list">${feedRaceListHtml()}</div>
@@ -1272,9 +1296,16 @@ function dashboardUpdatedText() {
 
 /** Personal dashboard table, including live totals and winner indicators. */
 function dashboardViewHtml() {
+  // Only Google-account dashboards show this note, immediately below the table.
+  // Existing accounts with more than 20 races retain their selections.
+  const limit = googleAccountRaceLimit();
+  const limitNote = Number.isFinite(limit)
+    ? `<p class="num dashboard-limit-note">Google accounts can save up to ${limit} races on their dashboard. To follow another race after reaching the limit, remove one first.</p>`
+    : '';
+
   if (!followedRaceIds.length) {
     renderedDashboardRaceRows = new Map();
-    return `<div class="empty"><b>No races yet</b>Pick the Senate, House or governor races you want to follow.<br><br><button class="btn" data-go="find">Find races</button></div>`;
+    return `<div class="empty"><b>No races yet</b>Pick the Senate, House or governor races you want to follow.<br><br><button class="btn" data-go="find">Find races</button></div>${limitNote}`;
   }
 
   renderedDashboardRaceRows = dashboardRowsByRace();
@@ -1282,6 +1313,7 @@ function dashboardViewHtml() {
 
   return `<div class="bar"><span id="dashboard-updated">${dashboardUpdatedText()}</span><button class="btn alt" data-reload>Refresh</button></div>
   <div class="wrap"><table><thead><tr><th>Race</th><th>Party</th><th>Candidate</th><th>Live results</th></tr></thead><tbody id="dashboard-rows">${tableRows}</tbody></table></div>
+  ${limitNote}
   <p class="num" style="margin:10px 4px">Before polls close, a race may list candidates who are not on the November ballot.</p>
   <details id="dashboard-debug"><summary>Raw data from civicAPI (for troubleshooting)</summary><div id="dashboard-debug-data">${dashboardDebugHtml()}</div></details>`;
 }
@@ -1407,6 +1439,7 @@ select('#main').addEventListener('submit', async event => {
     viewMessage = 'You already follow that race.';
     return render();
   }
+  if (!canFollowAnotherRace()) return;
 
   viewMessage = 'Looking up race ' + raceNumber + '…';
   render();
@@ -1423,6 +1456,8 @@ select('#main').addEventListener('submit', async event => {
     return render();
   }
 
+  // Another device or browser tab may have filled the account during lookup.
+  if (followedRaceIds.includes(id) || !canFollowAnotherRace()) return;
   followedRaceIds.push(id);
   saveFollowedRaces('add', id);
   goToTab('dash');

@@ -29,7 +29,11 @@ const importDescription = document.getElementById('guest-import-description');
 const importYes = document.getElementById('guest-import-yes');
 const importNo = document.getElementById('guest-import-no');
 
-const MAX_FOLLOWED = 500; // Matches the bundled firestore.rules.
+// Preserve previously saved lists (up to the old 500-entry safeguard), but
+// only allow up to 20 race selections for new Google-account additions.
+// Guest localStorage is never subject to this limit.
+const MAX_STORED = 500;
+const GOOGLE_ACCOUNT_RACE_LIMIT = 20;
 let auth;
 let db;
 let user = null;
@@ -48,7 +52,7 @@ function cleanIds(input) {
   if (!Array.isArray(input)) return [];
   return [...new Set(input.filter(id =>
     typeof id === 'string' && id.length > 0 && id.length <= 120))]
-    .slice(0, MAX_FOLLOWED);
+    .slice(0, MAX_STORED);
 }
 
 function isConfigured(config) {
@@ -86,6 +90,7 @@ function displayGuest() {
   retryButton.hidden = true;
   importBanner.hidden = true;
   dashboard.applyRaces(dashboard.guestRaces());
+  dashboard.refreshAccountUI();
 }
 
 function displayAccount() {
@@ -128,12 +133,16 @@ function updateImportOffer() {
     return;
   }
   const cloudSet = new Set(visibleCloudIds());
+  const available = Math.max(0, GOOGLE_ACCOUNT_RACE_LIMIT - cloudSet.size);
   const missing = cleanIds(dashboard.guestRaces()).filter(id => !cloudSet.has(id));
-  if (!missing.length) {
+  if (!missing.length || !available) {
     importBanner.hidden = true;
     return;
   }
-  importDescription.textContent = `${missing.length} race${missing.length === 1 ? '' : 's'} saved on this device can be added to your Google account. Your current cloud selections will be kept.`;
+  const count = Math.min(missing.length, available);
+  importDescription.textContent = missing.length > available
+    ? `Your Google account has room for ${count} more race${count === 1 ? '' : 's'}. You can import the first ${count} of your ${missing.length} guest races; the rest will stay saved on this device.`
+    : `${count} race${count === 1 ? '' : 's'} saved on this device can be added to your Google account. Your current cloud selections will be kept.`;
   importBanner.hidden = false;
 }
 
@@ -147,10 +156,11 @@ async function saveCloudChange(action, raceId) {
   changesPending.set(raceId, { add, version });
   displayAccount();
   const total = visibleCloudIds().length;
-  if (total > MAX_FOLLOWED) {
+  // Existing Google accounts above the limit can still REMOVE races.
+  if (add && total > GOOGLE_ACCOUNT_RACE_LIMIT) {
     changesPending.delete(raceId);
     applyCloudRaces();
-    accountError = `You can follow up to ${MAX_FOLLOWED} races.`;
+    accountError = `Google accounts can save up to ${GOOGLE_ACCOUNT_RACE_LIMIT} races. Remove one before adding another.`;
     setMessage(user.email || 'Google account', accountError);
     return;
   }
@@ -183,6 +193,7 @@ async function saveCloudChange(action, raceId) {
 
 // Keep this adapter small: the existing app owns the UI and civicAPI logic.
 window.electionCloud = {
+  raceLimit: GOOGLE_ACCOUNT_RACE_LIMIT,
   isSignedIn() { return accountMode === 'user'; },
   accountKey() { return user ? user.uid : 'guest'; },
   canEdit() {
@@ -226,6 +237,7 @@ async function openAccount(nextUser) {
     cloudIds = cleanIds(first.exists() ? first.data().followedRaces : []);
     setAccountMode('user');
     applyCloudRaces();
+    dashboard.refreshAccountUI();
     displayAccount();
     updateImportOffer();
 
@@ -297,14 +309,11 @@ importYes.addEventListener('click', async () => {
   if (accountMode !== 'user' || !userDocument) return;
   const generation = accountGeneration;
   const existing = new Set(visibleCloudIds());
-  const missing = cleanIds(dashboard.guestRaces()).filter(id => !existing.has(id));
+  const available = Math.max(0, GOOGLE_ACCOUNT_RACE_LIMIT - existing.size);
+  const missing = cleanIds(dashboard.guestRaces())
+    .filter(id => !existing.has(id)).slice(0, available);
   if (!missing.length) {
     importBanner.hidden = true;
-    return;
-  }
-  if (existing.size + missing.length > MAX_FOLLOWED) {
-    setMessage(user.email || 'Google account',
-      `Import would exceed the ${MAX_FOLLOWED}-race account limit.`);
     return;
   }
   importYes.disabled = true;
@@ -331,15 +340,18 @@ importYes.addEventListener('click', async () => {
 window.addEventListener('online', () => { if (user) displayAccount(); });
 window.addEventListener('offline', () => { if (user) displayAccount(); });
 
-// If configuration is still a template, guest mode remains fully functional.
+// Firebase is optional; visitors can still use the guest dashboard when
+// configuration is missing or the SDK cannot initialize. Never hide sign-in
+// silently: the visible button explains the setup issue if clicked.
 if (!isConfigured(firebaseConfig)) {
-  setMessage('', '');
-  console.info('Firebase is not configured yet: edit firebase-config.js.');
+  loginButton.hidden = false;
+  console.warn('Firebase configuration missing. Update firebase-config.js on GitHub Pages.');
 } else {
   try {
     const app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
+    window.electionAuthReady = true;
     setAccountMode('loading');
     displayAccount();
     // Browser storage may be unavailable in a private/restricted session.
@@ -357,7 +369,8 @@ if (!isConfigured(firebaseConfig)) {
     });
   } catch (error) {
     console.error('Firebase initialization failed:', error);
+    window.electionAuthReady = false;
     setAccountMode('guest');
-    setMessage('', '');
+    loginButton.hidden = false;
   }
 }

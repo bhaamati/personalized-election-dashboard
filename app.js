@@ -831,6 +831,35 @@ function searchCategoryForRace(race) {
   return 'other';
 }
 
+/** Match the visible race title OR any candidate name, regardless of API search behavior. */
+function normalizedSearchText(value) {
+  return String(value ?? '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
+}
+
+function raceMatchesSearch(race, query) {
+  const needle = normalizedSearchText(query);
+  if (!needle) return true;
+  const names = [race.name, ...(race.rr?.cands || []).map(candidate => candidate.name)];
+  return names.some(name => normalizedSearchText(name).includes(needle));
+}
+
+/** The search API can return only its first `limit` races, even if more match. */
+function searchResponseIsTruncated(response, requestedLimit) {
+  const races = Array.isArray(response)
+    ? response
+    : firstAvailableField(response, ['races', 'results', 'data', 'items', 'hits']);
+  const returned = Array.isArray(races) ? races.length
+    : races && typeof races === 'object' ? Object.keys(races).length : 0;
+  const count = response && !Array.isArray(response)
+    ? Number(firstAvailableField(response, ['count', 'total', 'total_count', 'totalCount']))
+    : NaN;
+  return (Number.isFinite(count) && count > returned) ||
+    response?.has_more === true || response?.hasMore === true ||
+    response?.next != null || response?.next_page != null ||
+    returned >= requestedLimit;
+}
+
 /** Preserve a short sample of the API response for the troubleshooting panel. */
 function summarizeSearchDebugData(response) {
   const results = Array.isArray(response)
@@ -934,12 +963,14 @@ function renderLocalResults() {
 /**
  * Search civicAPI for races in the selected state and/or text query.
  *
- * It intentionally keeps the original behavior:
  * - At least 3 characters are required when no state is selected.
  * - Changing category chips reuses the same search if possible.
  * - Typing waits 450 ms, cancels the old request, and ignores stale answers.
  * - Successful responses are cached for 90 seconds.
- * - A candidate-name fallback checks up to 12 missing race details.
+ * - If a name search misses, retry using a broader query/state list and check
+ *   race TITLES as well as candidate names locally.
+ * - For explicit searches, widen truncated API results at most once, with a
+ *   bounded limit; do not download every election nationwide on each keypress.
  */
 function searchLocalRaces(force = false) {
   const query = searchText.trim();
@@ -987,7 +1018,7 @@ function searchLocalRaces(force = false) {
     let succeeded = false;
 
     // Preserve both snake_case and camelCase date parameters for civicAPI.
-    async function requestSearch(searchQuery, limit = 100) {
+    async function requestSearch(searchQuery, limit = 500) {
       const parameters = new URLSearchParams({
         country: 'US',
         start_date: SEARCH_START_DATE,
@@ -1004,8 +1035,7 @@ function searchLocalRaces(force = false) {
         const cached = getCachedValue(cachedSearchResponses, requestKey);
         if (cached !== undefined) return cached;
 
-        // A complete 500-race state response can also satisfy a 100-race
-        // fallback without an extra network call, when it contains <= 100 races.
+        // Reuse a larger state response only if it is complete and small.
         const compatible = getCompatibleCachedStateSearch(parameters);
         if (compatible !== undefined) return compatible;
       }
@@ -1015,6 +1045,17 @@ function searchLocalRaces(force = false) {
       const result = await response.json();
       if (!signal.aborted) cacheValue(cachedSearchResponses, requestKey, result);
       return result;
+    }
+
+    /** One extra request only when a named search is actually truncated. */
+    async function requestSearchWithCoverage(searchQuery, maxLimit = 2000) {
+      const firstLimit = 500;
+      const first = await requestSearch(searchQuery, firstLimit);
+      if (maxLimit <= firstLimit || !searchResponseIsTruncated(first, firstLimit)) {
+        return { response: first, truncated: searchResponseIsTruncated(first, firstLimit) };
+      }
+      const expanded = await requestSearch(searchQuery, maxLimit);
+      return { response: expanded, truncated: searchResponseIsTruncated(expanded, maxLimit) };
     }
 
     /** Load missing details to discover a race's scope or candidate names. */
@@ -1046,57 +1087,78 @@ function searchLocalRaces(force = false) {
       const notFeed = race => !Object.values(RACE_FEEDS)
         .some(feed => String(feed.id) === String(race.id));
 
-      const response = await requestSearch(query, query ? 100 : 500);
+      // Browsing by state stays capped at 500; a typed search can expand once
+      // if civicAPI reports additional matching races beyond the first page.
+      const initial = await requestSearchWithCoverage(query, query ? 2000 : 500);
       if (signal.aborted || requestSequence !== localSearchSequence) return;
 
-      let results = normalizeSearchResults(response).filter(notFeed);
+      let results = normalizeSearchResults(initial.response).filter(notFeed);
+      let matches = query ? results.filter(race => raceMatchesSearch(race, query)) : results;
+      let truncated = initial.truncated;
       localSearchDebugData = {
-        search: summarizeSearchDebugData(response),
+        search: summarizeSearchDebugData(initial.response),
         detail: null,
       };
 
-      if (!results.length && query && selectedState) {
-        // If race-name search yields nothing, search candidate names instead.
-        const otherResponse = await requestSearch('', 100);
-        if (signal.aborted || requestSequence !== localSearchSequence) return;
+      if (query && !matches.length) {
+        // The API searches race titles, not always candidates, and may miss a
+        // full phrase such as "Question 8". A state-wide search (or a shorter
+        // name search without a state) gives us a useful second chance.
+        const words = normalizedSearchText(query).split(' ').filter(word => word.length >= 3);
+        const broaderQuery = selectedState ? ''
+          : words.length ? words.sort((a, b) => b.length - a.length)[0] : '';
 
-        results = normalizeSearchResults(otherResponse).filter(notFeed);
-        const lowerQuery = query.toLowerCase();
-        const matchingCandidates = () => results.filter(race =>
-          race.rr && race.rr.cands.some(candidate =>
-            candidate.name.toLowerCase().includes(lowerQuery)));
-        let matches = matchingCandidates();
+        if (selectedState || (broaderQuery && normalizedSearchText(broaderQuery) !== normalizedSearchText(query))) {
+          localSearchMessage = 'Checking additional races…';
+          renderLocalResults();
 
-        if (!matches.length) {
-          const missingCandidates = results.filter(race =>
-            !race.rr || !race.rr.cands.length).slice(0, 12);
+          const broader = await requestSearchWithCoverage(broaderQuery, 2000);
+          if (signal.aborted || requestSequence !== localSearchSequence) return;
 
-          if (missingCandidates.length) {
-            localSearchMessage = `Checking missing candidate details in ${STATE_NAMES[selectedState]}…`;
-            await runWithConcurrencyLimit(missingCandidates, 3, enrichRace);
-            if (signal.aborted || requestSequence !== localSearchSequence) return;
-            matches = matchingCandidates();
+          results = normalizeSearchResults(broader.response).filter(notFeed);
+          matches = results.filter(race => raceMatchesSearch(race, query));
+          truncated = broader.truncated;
+          localSearchDebugData.search = summarizeSearchDebugData(broader.response);
+
+          // Many search results omit candidates. Only inspect missing details
+          // when no title or listed candidate matched, and limit these calls.
+          // A "Question 8" search is for a ballot title, not a candidate; do
+          // not fetch twelve unrelated race details to check their candidates.
+          if (!matches.length && selectedState) {
+            const likelyBallotTitle = /\b(question|proposition|measure|referendum|amendment|initiative)\b/i.test(query);
+            const missingCandidates = results.filter(race => race.noName ||
+              (!likelyBallotTitle && (!race.rr || !race.rr.cands.length))).slice(0, 12);
+            if (missingCandidates.length) {
+              localSearchMessage = `Checking candidate details in ${STATE_NAMES[selectedState]}…`;
+              renderLocalResults();
+              await runWithConcurrencyLimit(missingCandidates, 3, enrichRace);
+              if (signal.aborted || requestSequence !== localSearchSequence) return;
+              matches = results.filter(race => raceMatchesSearch(race, query));
+            }
           }
         }
-
-        localSearchResults = matches;
-        localSearchMessage = matches.length
-          ? ''
-          : `No candidate matching “${query}” among ${results.length} races returned for ${STATE_NAMES[selectedState]}.`;
-      } else {
-        localSearchResults = results;
-        localSearchMessage = results.length
-          ? ''
-          : 'No other races found for that search.';
-
-        // Show the search matches before waiting for individual race details.
-        renderLocalResults();
-
-        // Only request details where the search response did not identify scope.
-        const unknownScope = results.filter(race => !race.scope).slice(0, 12);
-        await runWithConcurrencyLimit(unknownScope, 3, enrichRace);
-        if (signal.aborted || requestSequence !== localSearchSequence) return;
       }
+
+      localSearchResults = matches;
+      if (matches.length) {
+        localSearchMessage = truncated
+          ? 'More matching races may exist. Select a state to narrow the search.'
+          : '';
+      } else if (query) {
+        localSearchMessage = truncated
+          ? `No matching races in the results returned for “${query}”. Select a state to search more thoroughly.`
+          : `No races found for “${query}”. Try selecting a state or another part of the race name.`;
+      } else {
+        localSearchMessage = truncated
+          ? 'Showing a limited set of races. Search by name or select a more specific category.'
+          : 'No other races found for that search.';
+      }
+
+      // Show matches before requesting extra details to classify their scope.
+      renderLocalResults();
+      const unknownScope = matches.filter(race => !race.scope).slice(0, 12);
+      await runWithConcurrencyLimit(unknownScope, 3, enrichRace);
+      if (signal.aborted || requestSequence !== localSearchSequence) return;
 
       succeeded = true;
     } catch (error) {
@@ -1190,6 +1252,9 @@ function feedRaceListHtml() {
     .sort((first, second) => first.label.localeCompare(second.label, 'en', { numeric: true }));
 
   if (!matchingRaces.length) {
+    // All also searches civicAPI's wider race index below this section.
+    // Don't show a misleading feed-only "No races match" before that finishes.
+    if (activeCategory === 'all' && (selectedState || searchText.trim().length >= 3)) return '';
     return '<div class="msg">No races match. Clear a filter or try a different name.</div>';
   }
 
@@ -1235,7 +1300,7 @@ function findViewHtml() {
   <div class="search"><select id="state" aria-label="State"><option value="">All states</option>${stateOptions}</select><input id="q" type="search" value="${escapeHtml(searchText)}" placeholder="Race name or candidate" aria-label="Search races"></div>
   ${viewMessage ? `<div class="msg err">${escapeHtml(viewMessage)}</div>` : ''}<div id="list">${feedRaceListHtml()}</div>
   ${['all', 'statewide', 'local', 'referendums'].includes(activeCategory) ? `<div id="local">${localResultsHtml()}</div>` : ''}
-  <p class="num" style="margin:12px 4px">Candidate-name search covers U.S. House, Senate and governor races. Statewide, Local, Referendums and Other races are searched by race name. Races already listed under Senate, House or Governor are not repeated.</p>
+  <p class="num" style="margin:12px 4px">Search for a race or candidate by name. For more complete statewide and local results, choose a state. Races already listed under Senate, House or Governor are not repeated.</p>
   <details><summary>Can’t find a race? Add it by civicAPI race ID</summary><form class="search" id="idf" style="margin-top:8px"><input id="rid" inputmode="numeric" placeholder="Race ID, e.g. 12345" aria-label="civicAPI race ID"><button class="btn">Add</button></form></details>`;
 }
 

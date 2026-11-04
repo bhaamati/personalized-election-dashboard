@@ -17,7 +17,7 @@
 // 1. Configuration and reference data
 // -----------------------------------------------------------------------------
 
-const API_BASE_URL = 'https://civicapi.org/api/v2';
+const API_BASE_URL = 'https://civicapi2.xyz/api/v2';
 const FOLLOWED_RACES_STORAGE_KEY = 'racewatch-follow-v2';
 const REFRESH_INTERVAL_MS = 30000;
 const MAX_FEED_RESULTS = 60;
